@@ -18,7 +18,7 @@ except ImportError:
 # 1. CONFIGURACIÓN
 # =========================
 DEVICE = torch.device("cpu")
-MODEL_PATH = "modelo_conv.pt" 
+MODEL_PATH = "modelo_casco_mascarilla_tfm.pt" 
 CLASS_NAMES = ["casco", "mascarilla", "nada"]
 SKIP_FRAMES = 4
 
@@ -77,14 +77,17 @@ def main():
     if USING_PICAM:
         camera = Picamera2()
         
-        # CONFIGURACIÓN: Pedimos RGB888, pero sabemos que capture_array
-        # nos lo dará en un formato que OpenCV interpreta bien directamente (BGR).
-        config = camera.create_still_configuration(
+        # --- SOLUCIÓN AL ZOOM ---
+        # Usamos 'create_preview_configuration' en lugar de 'still'.
+        # Esto usa el sensor completo y lo reduce, en lugar de recortar el centro.
+        # Pedimos RGB888, pero sabemos (por tu test) que al capturar nos dará 
+        # un formato compatible con OpenCV (BGR).
+        config = camera.create_preview_configuration(
             main={"size": (640, 480), "format": "RGB888"}
         )
         camera.configure(config)
         camera.start()
-        print("📷 Cámara Pi iniciada.")
+        print("📷 Cámara Pi iniciada (Modo Preview - Gran Angular).")
     else:
         cap = cv2.VideoCapture(0)
 
@@ -111,14 +114,13 @@ def main():
 
             # B. INFERENCIA
             if frame_count % SKIP_FRAMES == 0:
-                # IMPORTANTE: Como frame_bgr es BGR, debemos convertirlo a RGB
-                # SOLO para la Inteligencia Artificial.
+                # Convertimos BGR -> RGB SOLO para la Inteligencia Artificial.
                 frame_rgb_ia = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
                 current_class, current_conf = predict_frame(model, frame_rgb_ia)
             
             frame_count += 1
 
-            # C. DIBUJAR (Usamos frame_bgr directo, que ya vimos que se ve bien)
+            # C. DIBUJAR (Usamos frame_bgr directo, que se ve bien)
             
             # 1. Barra negra sólida arriba
             cv2.rectangle(frame_bgr, (0, 0), (640, 50), (0, 0, 0), -1)
