@@ -17,12 +17,12 @@ except ImportError:
 # 1. CONFIGURACIÓN
 # =========================
 DEVICE = torch.device("cpu")
-MODEL_PATH = "modelo_conv.pt" # Asegúrate de que el nombre es correcto
+MODEL_PATH = "modelo_conv.pt" 
 CLASS_NAMES = ["casco", "mascarilla", "nada"]
 SKIP_FRAMES = 4
 
 # =========================
-# 2. PREPROCESADO
+# 2. PREPROCESADO IA
 # =========================
 preprocess = transforms.Compose([
     transforms.Resize((224, 224)),
@@ -58,6 +58,7 @@ def load_model():
 # 4. PREDICCIÓN
 # =========================
 def predict_frame(model, frame_rgb):
+    # La IA recibe RGB
     pil_img = Image.fromarray(frame_rgb)
     x = preprocess(pil_img).unsqueeze(0).to(DEVICE)
     with torch.no_grad():
@@ -74,11 +75,14 @@ def main():
 
     if USING_PICAM:
         picam2 = Picamera2()
-        # VOLVEMOS A RGB888 (Estándar). Haremos la conversión manual luego.
-        config = picam2.create_preview_configuration(main={"size": (640, 480), "format": "RGB888"})
+        
+        # --- CAMBIO CRÍTICO: BGR888 ---
+        # Pedimos a la cámara el formato que le gusta a OpenCV.
+        # Así la imagen sale de la cámara lista para mostrarse CORRECTA.
+        config = picam2.create_preview_configuration(main={"size": (640, 480), "format": "BGR888"})
         picam2.configure(config)
         picam2.start()
-        print("📷 Cámara Pi iniciada.")
+        print("📷 Cámara Pi iniciada (Modo BGR Nativo).")
     else:
         cap = cv2.VideoCapture(0)
 
@@ -86,49 +90,46 @@ def main():
     current_class = "Esperando..."
     current_conf = 0.0
     
-    # COLORES DEL TEXTO (BGR: Azul, Verde, Rojo)
+    # Colores (Azul, Verde, Rojo)
     COLORS = {
         "casco": (0, 255, 0),       # Verde
-        "mascarilla": (255, 255, 0), # Cian/Azul Claro
+        "mascarilla": (255, 255, 0), # Cian
         "nada": (0, 0, 255)         # Rojo
     }
 
     try:
         while True:
-            # A. CAPTURA (Obtenemos RGB)
+            # A. CAPTURA (Recibimos BGR directo)
             if USING_PICAM:
-                frame_rgb = picam2.capture_array()
+                frame_bgr = picam2.capture_array()
+                # NO TOCAMOS NADA. La imagen frame_bgr ya tiene los colores bien para pantalla.
             else:
-                ret, frame_bgr_usb = cap.read()
+                ret, frame_bgr = cap.read()
                 if not ret: break
-                frame_rgb = cv2.cvtColor(frame_bgr_usb, cv2.COLOR_BGR2RGB)
 
-            # B. INFERENCIA (La IA usa el RGB tal cual)
+            # B. INFERENCIA
             if frame_count % SKIP_FRAMES == 0:
-                current_class, current_conf = predict_frame(model, frame_rgb)
+                # TRUCO: Solo invertimos los colores para la IA (que no se ve en pantalla)
+                # La IA necesita RGB, así que convertimos BGR -> RGB solo para ella
+                frame_rgb_ia = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
+                current_class, current_conf = predict_frame(model, frame_rgb_ia)
             
             frame_count += 1
 
-            # C. PREPARAR PANTALLA
-            # --- SOLUCIÓN COLORES ---
-            # Convertimos explícitamente RGB -> BGR para que la piel se vea bien
-            frame_display = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR)
+            # C. DIBUJAR (Sobre la imagen original de la cámara)
+            # 1. Barra negra sólida arriba (sin filtros ni transparencias)
+            cv2.rectangle(frame_bgr, (0, 0), (640, 50), (0, 0, 0), -1)
 
-            # D. DIBUJAR (Sobre la imagen con colores corregidos)
-            
-            # 1. Barra negra sólida arriba (sin filtros extraños)
-            cv2.rectangle(frame_display, (0, 0), (640, 50), (0, 0, 0), -1)
-
-            # 2. Elegimos el color del texto
+            # 2. Elegimos color
             color_texto = COLORS.get(current_class, (255, 255, 255))
 
             # 3. Escribimos
             text = f"DETECTADO: {current_class.upper()} ({current_conf*100:.1f}%)"
-            cv2.putText(frame_display, text, (20, 35), 
+            cv2.putText(frame_bgr, text, (20, 35), 
                         cv2.FONT_HERSHEY_SIMPLEX, 0.8, color_texto, 2)
 
-            # E. MOSTRAR
-            cv2.imshow("Sistema seguridad", frame_display)
+            # D. MOSTRAR
+            cv2.imshow("Sistema seguridad", frame_bgr)
 
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
