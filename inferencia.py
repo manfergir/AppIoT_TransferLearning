@@ -1,3 +1,4 @@
+# inferencia_resnet50_picam2_fix.py
 import time
 import torch
 import torch.nn as nn
@@ -11,8 +12,8 @@ try:
     from picamera2 import Picamera2
     import libcamera
     USING_PICAM = True
-except ImportError:
-    print("⚠️ AVISO: Picamera2 no encontrado. Usando OpenCV VideoCapture (USB).")
+except Exception:
+    print("⚠️ Picamera2 no disponible. El script intentará usar la cámara USB (OpenCV).")
     USING_PICAM = False
 
 # =========================
@@ -80,18 +81,18 @@ def main():
 
     if USING_PICAM:
         camera = Picamera2()
-        # <-- Cambio importante: pedimos BGR888 explícito para evitar
-        # problemas de intercambio de canales. Así la imagen que devuelve
-        # capture_array() ya está en BGR y se muestra correctamente con OpenCV.
+        # Pedimos explícitamente BGR888 para evitar tener que adivinar el orden.
+        # Esto hace que capture_array("main") devuelva directamente una imagen en BGR,
+        # lista para mostrarse con OpenCV.
         config = camera.create_still_configuration(
             main={"size": (FRAME_WIDTH, FRAME_HEIGHT), "format": "BGR888"},
             lores={"size": (FRAME_WIDTH, FRAME_HEIGHT)}
         )
-        # Opcional: aplicar transformaciones que use tu profesor (vflip, etc.)
+        # Si tu profesor aplica transform (vflip/rotate), actívalo aquí si lo necesitas:
         # config['transform'] = libcamera.Transform(vflip=True)
         camera.configure(config)
         camera.start()
-        print("📷 Cámara Pi iniciada (Formato BGR888).")
+        print("📷 Picamera2 iniciada con format='BGR888' (debe verse correcta en OpenCV).")
     else:
         cap = cv2.VideoCapture(0)
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, FRAME_WIDTH)
@@ -113,20 +114,28 @@ def main():
         while True:
             # A. CAPTURA
             if USING_PICAM:
-                # Con format="BGR888" capture_array devuelve imagen en BGR
                 frame_bgr = camera.capture_array("main")
                 if frame_bgr is None:
                     print("Falló captura Picamera2.")
                     break
-                frame_display = frame_bgr  # ya en BGR para mostrar con OpenCV
-                # Convertimos a RGB para la red
-                frame_rgb_for_model = cv2.cvtColor(frame_display, cv2.COLOR_BGR2RGB)
+
+                # Diagnóstico: medias por canal para confirmar orden
+                means = frame_bgr.mean(axis=(0,1))
+                # means corresponde a (canal0, canal1, canal2) tal cual devuelve capture_array.
+                # Con format='BGR888' lo esperado es que means ~ (B_mean, G_mean, R_mean).
+                # Imprimimos para que puedas verificar si la cámara realmente está devolviendo BGR.
+                print("Medias por canal (raw returned):", means)
+
+                # Asumimos BGR (porque pedimos BGR888): mostrar directamente
+                frame_display = frame_bgr
+                # Convertimos para el modelo a RGB
+                frame_rgb_for_model = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
             else:
                 ret, frame_bgr_usb = cap.read()
                 if not ret:
                     print("Falló captura USB.")
                     break
-                frame_display = frame_bgr_usb  # OpenCV ya devuelve BGR
+                frame_display = frame_bgr_usb
                 frame_rgb_for_model = cv2.cvtColor(frame_bgr_usb, cv2.COLOR_BGR2RGB)
 
             # B. INFERENCIA (la IA usa RGB)
@@ -136,9 +145,7 @@ def main():
             frame_count += 1
 
             # C. DIBUJAR INFORMACIÓN
-            # Barra negra arriba (ajusta tamaño si cambias resolución)
             cv2.rectangle(frame_display, (0, 0), (FRAME_WIDTH, 50), (0, 0, 0), -1)
-
             color_texto = COLORS.get(current_class, (255, 255, 255))
             text = f"DETECTADO: {current_class.upper()} ({current_conf*100:.1f}%)"
             cv2.putText(frame_display, text, (20, 35),
