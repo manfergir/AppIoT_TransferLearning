@@ -17,7 +17,7 @@ except ImportError:
 # 1. CONFIGURACIÓN
 # =========================
 DEVICE = torch.device("cpu")
-MODEL_PATH = "modelo_conv.pt" 
+MODEL_PATH = "modelo_casco_mascarilla_tfm.pt" # Asegúrate de que el nombre es correcto
 CLASS_NAMES = ["casco", "mascarilla", "nada"]
 SKIP_FRAMES = 4
 
@@ -74,11 +74,11 @@ def main():
 
     if USING_PICAM:
         picam2 = Picamera2()
-        # Mantenemos BGR888 porque es lo que arregló el problema de los colores azules
-        config = picam2.create_preview_configuration(main={"size": (640, 480), "format": "BGR888"})
+        # VOLVEMOS A RGB888 (Estándar). Haremos la conversión manual luego.
+        config = picam2.create_preview_configuration(main={"size": (640, 480), "format": "RGB888"})
         picam2.configure(config)
         picam2.start()
-        print("📷 Cámara Pi iniciada (Modo BGR).")
+        print("📷 Cámara Pi iniciada.")
     else:
         cap = cv2.VideoCapture(0)
 
@@ -86,49 +86,49 @@ def main():
     current_class = "Esperando..."
     current_conf = 0.0
     
-    # DICCIONARIO DE COLORES (Formato BGR: Azul, Verde, Rojo)
+    # COLORES DEL TEXTO (BGR: Azul, Verde, Rojo)
     COLORS = {
-        "casco": (0, 255, 0),       # Verde Puro
-        "mascarilla": (255, 255, 0), # Cian / Azul Claro
-        "nada": (0, 0, 255)         # Rojo Puro
+        "casco": (0, 255, 0),       # Verde
+        "mascarilla": (255, 255, 0), # Cian/Azul Claro
+        "nada": (0, 0, 255)         # Rojo
     }
 
     try:
         while True:
-            # A. CAPTURA (Imagen limpia en BGR)
+            # A. CAPTURA (Obtenemos RGB)
             if USING_PICAM:
-                frame_bgr = picam2.capture_array()
+                frame_rgb = picam2.capture_array()
             else:
-                ret, frame_bgr = cap.read()
+                ret, frame_bgr_usb = cap.read()
                 if not ret: break
+                frame_rgb = cv2.cvtColor(frame_bgr_usb, cv2.COLOR_BGR2RGB)
 
-            # B. INFERENCIA
+            # B. INFERENCIA (La IA usa el RGB tal cual)
             if frame_count % SKIP_FRAMES == 0:
-                # Invertimos a RGB solo para la IA (internamente)
-                frame_rgb_ia = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
-                current_class, current_conf = predict_frame(model, frame_rgb_ia)
+                current_class, current_conf = predict_frame(model, frame_rgb)
             
             frame_count += 1
 
-            # C. DIBUJAR (Sin filtros raros)
-            
-            # 1. Dibujamos una barra negra SÓLIDA arriba (solo 50px de alto)
-            # Esto asegura que el texto se lea sin ensuciar el resto de la imagen
-            cv2.rectangle(frame_bgr, (0, 0), (640, 50), (0, 0, 0), -1)
+            # C. PREPARAR PANTALLA
+            # --- SOLUCIÓN COLORES ---
+            # Convertimos explícitamente RGB -> BGR para que la piel se vea bien
+            frame_display = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR)
 
-            # 2. Elegimos el color según la clase
+            # D. DIBUJAR (Sobre la imagen con colores corregidos)
+            
+            # 1. Barra negra sólida arriba (sin filtros extraños)
+            cv2.rectangle(frame_display, (0, 0), (640, 50), (0, 0, 0), -1)
+
+            # 2. Elegimos el color del texto
             color_texto = COLORS.get(current_class, (255, 255, 255))
 
-            # 3. Escribimos el texto CON COLOR
+            # 3. Escribimos
             text = f"DETECTADO: {current_class.upper()} ({current_conf*100:.1f}%)"
-            cv2.putText(frame_bgr, text, (20, 35), 
+            cv2.putText(frame_display, text, (20, 35), 
                         cv2.FONT_HERSHEY_SIMPLEX, 0.8, color_texto, 2)
 
-            # (Opcional) Si quieres un borde fino alrededor de la pantalla del color de la clase:
-            # cv2.rectangle(frame_bgr, (0,0), (640, 480), color_texto, 2)
-
-            # D. MOSTRAR
-            cv2.imshow("Sistema seguridad", frame_bgr)
+            # E. MOSTRAR
+            cv2.imshow("Sistema seguridad", frame_display)
 
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
