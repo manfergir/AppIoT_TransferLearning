@@ -18,7 +18,7 @@ except ImportError:
 # 1. CONFIGURACIÓN
 # =========================
 DEVICE = torch.device("cpu")
-MODEL_PATH = "modelo_casco_mascarilla_tfm.pt" 
+MODEL_PATH = "modelo_conv.pt" 
 CLASS_NAMES = ["casco", "mascarilla", "nada"]
 SKIP_FRAMES = 4
 
