@@ -6,8 +6,10 @@ import cv2
 import numpy as np
 from PIL import Image
 
+# Importamos las librerías EXACTAS que usa tu profesor
 try:
     from picamera2 import Picamera2
+    import libcamera 
     USING_PICAM = True
 except ImportError:
     print("⚠️ AVISO: Picamera2 no encontrado. Usando OpenCV VideoCapture (USB).")
@@ -58,7 +60,7 @@ def load_model():
 # 4. PREDICCIÓN
 # =========================
 def predict_frame(model, frame_rgb):
-    # La IA recibe RGB
+    # La IA recibe RGB (Lo que le gusta)
     pil_img = Image.fromarray(frame_rgb)
     x = preprocess(pil_img).unsqueeze(0).to(DEVICE)
     with torch.no_grad():
@@ -74,15 +76,18 @@ def main():
     model = load_model()
 
     if USING_PICAM:
-        picam2 = Picamera2()
+        camera = Picamera2()
         
-        # --- CAMBIO CRÍTICO: BGR888 ---
-        # Pedimos a la cámara el formato que le gusta a OpenCV.
-        # Así la imagen sale de la cámara lista para mostrarse CORRECTA.
-        config = picam2.create_preview_configuration(main={"size": (640, 480), "format": "BGR888"})
-        picam2.configure(config)
-        picam2.start()
-        print("📷 Cámara Pi iniciada (Modo BGR Nativo).")
+        # --- CONFIGURACIÓN ESTILO PROFESOR ---
+        # Usamos create_still_configuration.
+        # Ponemos 'main' en 640x480 para que la Raspberry no explote procesando HD.
+        # Le pedimos RGB888 explícitamente para que la IA funcione.
+        config = camera.create_still_configuration(
+            main={"size": (640, 480), "format": "RGB888"}
+        )
+        camera.configure(config)
+        camera.start()
+        print("📷 Cámara Pi iniciada (Configuración Still).")
     else:
         cap = cv2.VideoCapture(0)
 
@@ -90,7 +95,6 @@ def main():
     current_class = "Esperando..."
     current_conf = 0.0
     
-    # Colores (Azul, Verde, Rojo)
     COLORS = {
         "casco": (0, 255, 0),       # Verde
         "mascarilla": (255, 255, 0), # Cian
@@ -99,37 +103,38 @@ def main():
 
     try:
         while True:
-            # A. CAPTURA (Recibimos BGR directo)
+            # A. CAPTURA
             if USING_PICAM:
-                frame_bgr = picam2.capture_array()
-                # NO TOCAMOS NADA. La imagen frame_bgr ya tiene los colores bien para pantalla.
+                # Capturamos del stream "main". Viene en RGB.
+                frame_rgb = camera.capture_array("main")
             else:
-                ret, frame_bgr = cap.read()
+                ret, frame_bgr_usb = cap.read()
                 if not ret: break
+                frame_rgb = cv2.cvtColor(frame_bgr_usb, cv2.COLOR_BGR2RGB)
 
-            # B. INFERENCIA
+            # B. INFERENCIA (La IA usa el RGB tal cual)
             if frame_count % SKIP_FRAMES == 0:
-                # TRUCO: Solo invertimos los colores para la IA (que no se ve en pantalla)
-                # La IA necesita RGB, así que convertimos BGR -> RGB solo para ella
-                frame_rgb_ia = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
-                current_class, current_conf = predict_frame(model, frame_rgb_ia)
+                current_class, current_conf = predict_frame(model, frame_rgb)
             
             frame_count += 1
 
-            # C. DIBUJAR (Sobre la imagen original de la cámara)
-            # 1. Barra negra sólida arriba (sin filtros ni transparencias)
-            cv2.rectangle(frame_bgr, (0, 0), (640, 50), (0, 0, 0), -1)
+            # C. VISUALIZACIÓN (¡AQUÍ ESTÁ LA SOLUCIÓN!)
+            # Tu cara es azul en RGB si la muestras en OpenCV.
+            # Convertimos a BGR para que la ventana te vea con color normal.
+            frame_display = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR)
 
-            # 2. Elegimos color
+            # D. DIBUJAR
             color_texto = COLORS.get(current_class, (255, 255, 255))
+            
+            # Barra negra arriba
+            cv2.rectangle(frame_display, (0, 0), (640, 50), (0, 0, 0), -1)
 
-            # 3. Escribimos
             text = f"DETECTADO: {current_class.upper()} ({current_conf*100:.1f}%)"
-            cv2.putText(frame_bgr, text, (20, 35), 
+            cv2.putText(frame_display, text, (20, 35), 
                         cv2.FONT_HERSHEY_SIMPLEX, 0.8, color_texto, 2)
 
-            # D. MOSTRAR
-            cv2.imshow("Sistema seguridad", frame_bgr)
+            # E. MOSTRAR
+            cv2.imshow("Sistema seguridad", frame_display)
 
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
@@ -137,7 +142,8 @@ def main():
     except KeyboardInterrupt:
         pass
     finally:
-        if USING_PICAM: picam2.stop()
+        print("Cerrando...")
+        if USING_PICAM: camera.stop()
         else: cap.release()
         cv2.destroyAllWindows()
 
