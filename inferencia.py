@@ -6,25 +6,23 @@ import cv2
 import numpy as np
 from PIL import Image
 
-# Importamos Picamera2 y libcamera para la configuración del profesor
 try:
     from picamera2 import Picamera2
-    import libcamera # Necesario para el Transform que usa tu profesor
     USING_PICAM = True
 except ImportError:
     print("⚠️ AVISO: Picamera2 no encontrado. Usando OpenCV VideoCapture (USB).")
     USING_PICAM = False
 
 # =========================
-# CONFIGURACIÓN
+# 1. CONFIGURACIÓN
 # =========================
 DEVICE = torch.device("cpu")
 MODEL_PATH = "modelo_conv.pt" # Tu modelo
 CLASS_NAMES = ["casco", "mascarilla", "nada"]
-SKIP_FRAMES = 4 
+SKIP_FRAMES = 4
 
 # =========================
-# PREPROCESADO
+# 2. PREPROCESADO
 # =========================
 preprocess = transforms.Compose([
     transforms.Resize((224, 224)),
@@ -36,7 +34,7 @@ preprocess = transforms.Compose([
 ])
 
 # =========================
-# CARGAR MODELO
+# 3. CARGAR MODELO
 # =========================
 def load_model():
     print(f"Cargando ResNet50...")
@@ -57,10 +55,10 @@ def load_model():
     return model
 
 # =========================
-# PREDICCIÓN
+# 4. PREDICCIÓN
 # =========================
 def predict_frame(model, frame_rgb):
-    # La IA recibe RGB (que es lo que le gusta)
+    # La IA recibe RGB
     pil_img = Image.fromarray(frame_rgb)
     x = preprocess(pil_img).unsqueeze(0).to(DEVICE)
     with torch.no_grad():
@@ -70,28 +68,20 @@ def predict_frame(model, frame_rgb):
     return CLASS_NAMES[pred_idx.item()], conf.item()
 
 # =========================
-# MAIN
+# 5. MAIN
 # =========================
 def main():
     model = load_model()
 
     if USING_PICAM:
         picam2 = Picamera2()
-        
-        # --- CONFIGURACIÓN ESTILO PROFESOR ---
-        config = picam2.create_still_configuration(
-            main={"size": (1920, 1080), "format": "RGB888"}, # Alta resolución latente
-            lores={"size": (640, 480), "format": "RGB888"},  # Baja resolución para procesar (Fluidez)
-            display="lores" # Usamos la pequeña para ver
-        )
-        
-        # Aplicamos el Transform (Flip) si lo tenías en el ejemplo, 
-        # aunque comentaste que el flip no lo querías, lo dejo comentado por si acaso.
-        # config['transform'] = libcamera.Transform(vflip=True) 
-        
+        # --- SOLUCIÓN DE COLORES ---
+        # Configuramos BGR888. Esto hace que OpenCV (la ventana) lo entienda NATIVAMENTE.
+        # Adiós a los colores azules.
+        config = picam2.create_preview_configuration(main={"size": (640, 480), "format": "BGR888"})
         picam2.configure(config)
         picam2.start()
-        print("📷 Cámara Pi iniciada (Configuración Main/Lores).")
+        print("📷 Cámara Pi iniciada (Modo BGR Nativo).")
     else:
         cap = cv2.VideoCapture(0)
 
@@ -99,7 +89,6 @@ def main():
     current_class = "Esperando..."
     current_conf = 0.0
     
-    # Colores semánticos para el RECUADRO (Texto siempre blanco)
     COLORS = {
         "casco": (0, 255, 0),       # Verde
         "mascarilla": (255, 255, 0), # Cian
@@ -109,43 +98,41 @@ def main():
 
     try:
         while True:
-            # A. CAPTURA
+            # A. CAPTURA DIRECTA (BGR)
             if USING_PICAM:
-                # IMPORTANTE: Capturamos del stream "lores" para que vaya rápido
-                # La cámara nos da RGB888 (Rojo-Verde-Azul)
-                frame_rgb = picam2.capture_array("lores")
+                frame_bgr = picam2.capture_array()
+                # ¡YA NO TOCAMOS LOS COLORES AQUÍ! La cámara nos da lo que la pantalla quiere.
             else:
-                ret, frame_bgr_usb = cap.read()
+                ret, frame_bgr = cap.read()
                 if not ret: break
-                frame_rgb = cv2.cvtColor(frame_bgr_usb, cv2.COLOR_BGR2RGB)
 
-            # B. INFERENCIA (Usamos RGB, que es lo correcto para la IA)
+            # B. INFERENCIA
             if frame_count % SKIP_FRAMES == 0:
-                current_class, current_conf = predict_frame(model, frame_rgb)
+                # TRUCO: Solo invertimos los colores para la IA (que no se ve en pantalla)
+                # La IA necesita RGB, así que se lo preparamos aparte.
+                frame_rgb_ia = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
+                current_class, current_conf = predict_frame(model, frame_rgb_ia)
             
             frame_count += 1
 
-            # C. VISUALIZACIÓN (SOLUCIÓN DEFINITIVA DE COLOR)
-            # OpenCV (cv2.imshow) espera BGR (Azul-Verde-Rojo).
-            # Nosotros tenemos RGB. Si no hacemos esto, se ve azul.
-            frame_display = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR)
-
-            # D. DIBUJAR
-            color_box = COLORS.get(current_class, (255, 255, 255))
+            # C. MOSTRAR (Usamos el frame directo, sin tocar)
+            # Como pediste BGR a la cámara, los colores salen perfectos.
             
             # Panel oscuro
-            overlay = frame_display.copy()
+            overlay = frame_bgr.copy()
             cv2.rectangle(overlay, (0, 0), (640, 60), (0, 0, 0), -1)
-            frame_display = cv2.addWeighted(overlay, 0.5, frame_display, 0.5, 0)
+            frame_bgr = cv2.addWeighted(overlay, 0.5, frame_bgr, 0.5, 0)
 
+            # Recuadro de detección (Color según clase)
+            color_box = COLORS.get(current_class, (255, 255, 255))
+            cv2.rectangle(frame_bgr, (0,0), (640, 480), color_box, 4)
+
+            # Texto (Blanco)
             text = f"DETECTADO: {current_class.upper()} ({current_conf*100:.1f}%)"
-            cv2.putText(frame_display, text, (20, 40), 
+            cv2.putText(frame_bgr, text, (20, 40), 
                         cv2.FONT_HERSHEY_SIMPLEX, 0.8, COLOR_TEXTO, 2)
-            
-            # Recuadro opcional alrededor
-            cv2.rectangle(frame_display, (0,0), (640, 480), color_box, 4)
 
-            cv2.imshow("Sistema TFM", frame_display)
+            cv2.imshow("Sistema de seguridad", frame_bgr)
 
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
