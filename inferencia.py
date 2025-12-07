@@ -14,17 +14,13 @@ except ImportError:
     print("AVISO: Picamera2 no encontrado. Usando OpenCV VideoCapture (USB).")
     USING_PICAM = False
 
-# =========================
-# 1. CONFIGURACIÃ“N
-# =========================
+# 1. Configuración inicial
 DEVICE = torch.device("cpu")
 MODEL_PATH = "modelo_conv.pt" 
 CLASS_NAMES = ["casco", "mascarilla", "nada"]
-SKIP_FRAMES = 2
+SKIP_FRAMES = 4
 
-# =========================
-# 2. PREPROCESADO IA
-# =========================
+# 2. Preprocesado y carga del modelo
 preprocess = transforms.Compose([
     transforms.Resize((224, 224)),
     transforms.ToTensor(),
@@ -34,9 +30,6 @@ preprocess = transforms.Compose([
     )
 ])
 
-# =========================
-# 3. CARGAR MODELO
-# =========================
 def load_model():
     print(f"Cargando ResNet50...")
     model = models.resnet50(weights=None)
@@ -55,11 +48,8 @@ def load_model():
     model.eval()
     return model
 
-# =========================
-# 4. PREDICCIÃ“N
-# =========================
+# 3. Predicción
 def predict_frame(model, frame_rgb):
-    # La IA recibe RGB (Lo que le gusta)
     pil_img = Image.fromarray(frame_rgb)
     x = preprocess(pil_img).unsqueeze(0).to(DEVICE)
     with torch.no_grad():
@@ -68,20 +58,12 @@ def predict_frame(model, frame_rgb):
         conf, pred_idx = torch.max(probs, dim=0)
     return CLASS_NAMES[pred_idx.item()], conf.item()
 
-# =========================
-# 5. MAIN
-# =========================
+# 4. Bucle principal
 def main():
     model = load_model()
 
     if USING_PICAM:
         camera = Picamera2()
-        
-        # --- SOLUCIÃ“N AL ZOOM ---
-        # Usamos 'create_preview_configuration' en lugar de 'still'.
-        # Esto usa el sensor completo y lo reduce, en lugar de recortar el centro.
-        # Pedimos RGB888, pero sabemos (por tu test) que al capturar nos darÃ¡ 
-        # un formato compatible con OpenCV (BGR).
         config = camera.create_preview_configuration(
             main={"size": (640, 480), "format": "RGB888"}
         )
@@ -97,16 +79,15 @@ def main():
     
     # Colores (B, G, R) para el texto
     COLORS = {
-        "casco": (0, 255, 0),       # Verde
-        "mascarilla": (255, 255, 0), # Cian
-        "nada": (0, 0, 255)         # Rojo
+        "casco": (0, 255, 0),        # Verde
+        "mascarilla": (255, 255, 0), # Azul clarito
+        "nada": (0, 0, 255)          # Rojo
     }
 
     try:
         while True:
             # A. CAPTURA
             if USING_PICAM:
-                # Tu diagnÃ³stico demostrÃ³ que esto ya viene listo para OpenCV (BGR)
                 frame_bgr = camera.capture_array("main")
             else:
                 ret, frame_bgr = cap.read()
@@ -114,27 +95,20 @@ def main():
 
             # B. INFERENCIA
             if frame_count % SKIP_FRAMES == 0:
-                # Convertimos BGR -> RGB SOLO para la Inteligencia Artificial.
                 frame_rgb_ia = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
                 current_class, current_conf = predict_frame(model, frame_rgb_ia)
             
             frame_count += 1
 
-            # C. DIBUJAR (Usamos frame_bgr directo, que se ve bien)
-            
-            # 1. Barra negra sÃ³lida arriba
             cv2.rectangle(frame_bgr, (0, 0), (640, 50), (0, 0, 0), -1)
 
-            # 2. Texto con color
             color_texto = COLORS.get(current_class, (255, 255, 255))
             text = f"DETECTADO: {current_class.upper()} ({current_conf*100:.1f}%)"
             
             cv2.putText(frame_bgr, text, (20, 35), 
                         cv2.FONT_HERSHEY_SIMPLEX, 0.8, color_texto, 2)
 
-            # D. MOSTRAR
             cv2.imshow("AppIoT: sistema de seguridad usando reinforcement learning", frame_bgr)
-
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
 
