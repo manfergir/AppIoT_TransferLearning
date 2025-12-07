@@ -11,16 +11,16 @@ try:
     import libcamera 
     USING_PICAM = True
 except ImportError:
-    print("⚠️ AVISO: Picamera2 no encontrado. Usando OpenCV VideoCapture (USB).")
+    print("âš ï¸ AVISO: Picamera2 no encontrado. Usando OpenCV VideoCapture (USB).")
     USING_PICAM = False
 
 # =========================
-# 1. CONFIGURACIÓN
+# 1. CONFIGURACIÃ“N
 # =========================
 DEVICE = torch.device("cpu")
 MODEL_PATH = "modelo_conv.pt" 
 CLASS_NAMES = ["casco", "mascarilla", "nada"]
-SKIP_FRAMES = 4
+SKIP_FRAMES = 2
 
 # =========================
 # 2. PREPROCESADO IA
@@ -49,14 +49,14 @@ def load_model():
         state_dict = torch.load(MODEL_PATH, map_location=DEVICE)
         model.load_state_dict(state_dict)
     except FileNotFoundError:
-        print(f"❌ ERROR: No encuentro '{MODEL_PATH}'")
+        print(f"âŒ ERROR: No encuentro '{MODEL_PATH}'")
         exit()
     model.to(DEVICE)
     model.eval()
     return model
 
 # =========================
-# 4. PREDICCIÓN
+# 4. PREDICCIÃ“N
 # =========================
 def predict_frame(model, frame_rgb):
     # La IA recibe RGB (Lo que le gusta)
@@ -77,17 +77,17 @@ def main():
     if USING_PICAM:
         camera = Picamera2()
         
-        # --- SOLUCIÓN AL ZOOM ---
+        # --- SOLUCIÃ“N AL ZOOM ---
         # Usamos 'create_preview_configuration' en lugar de 'still'.
         # Esto usa el sensor completo y lo reduce, en lugar de recortar el centro.
-        # Pedimos RGB888, pero sabemos (por tu test) que al capturar nos dará 
+        # Pedimos RGB888, pero sabemos (por tu test) que al capturar nos darÃ¡ 
         # un formato compatible con OpenCV (BGR).
         config = camera.create_preview_configuration(
             main={"size": (640, 480), "format": "RGB888"}
         )
         camera.configure(config)
         camera.start()
-        print("📷 Cámara Pi iniciada (Modo Preview - Gran Angular).")
+        print("ðŸ“· CÃ¡mara Pi iniciada (Modo Preview - Gran Angular).")
     else:
         cap = cv2.VideoCapture(0)
 
@@ -106,7 +106,7 @@ def main():
         while True:
             # A. CAPTURA
             if USING_PICAM:
-                # Tu diagnóstico demostró que esto ya viene listo para OpenCV (BGR)
+                # Tu diagnÃ³stico demostrÃ³ que esto ya viene listo para OpenCV (BGR)
                 frame_bgr = camera.capture_array("main")
             else:
                 ret, frame_bgr = cap.read()
@@ -122,7 +122,7 @@ def main():
 
             # C. DIBUJAR (Usamos frame_bgr directo, que se ve bien)
             
-            # 1. Barra negra sólida arriba
+            # 1. Barra negra sÃ³lida arriba
             cv2.rectangle(frame_bgr, (0, 0), (640, 50), (0, 0, 0), -1)
 
             # 2. Texto con color
