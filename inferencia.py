@@ -11,7 +11,7 @@ try:
     import libcamera 
     USING_PICAM = True
 except ImportError:
-    print("âš ï¸ AVISO: Picamera2 no encontrado. Usando OpenCV VideoCapture (USB).")
+    print("AVISO: Picamera2 no encontrado. Usando OpenCV VideoCapture (USB).")
     USING_PICAM = False
 
 # =========================
@@ -49,7 +49,7 @@ def load_model():
         state_dict = torch.load(MODEL_PATH, map_location=DEVICE)
         model.load_state_dict(state_dict)
     except FileNotFoundError:
-        print(f"âŒ ERROR: No encuentro '{MODEL_PATH}'")
+        print(f"ERROR: No se encuentra ningún state_dict en '{MODEL_PATH}'")
         exit()
     model.to(DEVICE)
     model.eval()
@@ -87,7 +87,7 @@ def main():
         )
         camera.configure(config)
         camera.start()
-        print("ðŸ“· CÃ¡mara Pi iniciada (Modo Preview - Gran Angular).")
+        print("PiCamera iniciada con éxito.")
     else:
         cap = cv2.VideoCapture(0)
 
@@ -133,7 +133,7 @@ def main():
                         cv2.FONT_HERSHEY_SIMPLEX, 0.8, color_texto, 2)
 
             # D. MOSTRAR
-            cv2.imshow("Sistema seguridad", frame_bgr)
+            cv2.imshow("AppIoT: sistema de seguridad usando reinforcement learning", frame_bgr)
 
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
@@ -141,7 +141,7 @@ def main():
     except KeyboardInterrupt:
         pass
     finally:
-        print("Cerrando...")
+        print("Cerrando proyecto...")
         if USING_PICAM: camera.stop()
         else: cap.release()
         cv2.destroyAllWindows()
