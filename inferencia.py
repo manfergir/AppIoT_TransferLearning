@@ -108,7 +108,7 @@ def main():
             cv2.putText(frame_bgr, text, (20, 35), 
                         cv2.FONT_HERSHEY_SIMPLEX, 0.8, color_texto, 2)
 
-            cv2.imshow("AppIoT: sistema de seguridad usando reinforcement learning", frame_bgr)
+            cv2.imshow("AppIoT: sistema de seguridad usando transfer learning", frame_bgr)
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
 
